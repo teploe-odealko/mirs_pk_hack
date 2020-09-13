@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import json
+from my_report import create_pdf
 
 from dash.dependencies import Input, Output, State
 from plotly import graph_objs as go
@@ -22,7 +23,7 @@ geojson_copy = geojson.copy()
 # Dinar opishet)
 
 
-
+mapbox_access_token = "pk.eyJ1IjoiYmVzdHdpc2hlczEyMyIsImEiOiJja2YwemgwdTcweXl3MnFvYzVtaDExNmlkIn0.yowUCKCjiCTFXWhe8nzQCA"
 
 
 # @with_current
@@ -39,14 +40,46 @@ geojson_new, coords = next(coord_generator)
 lat = coords[1]
 lon = coords[0]
 # figure
-fig = px.choropleth_mapbox(df, geojson=geojson_new, locations='id', color='color',
-                       color_continuous_scale="Viridis",
-                       range_color=(0, 12),
-                       mapbox_style="carto-positron",
-                       zoom=15, center = {"lat": lat, "lon": lon},
-                       opacity=0.5)
-fig.update_layout(margin={"r":0, "t":0, "l":0, "b":0})
+# fig = px.choropleth_mapbox(df, geojson=geojson_new, locations='id', color='color',
+#                        color_continuous_scale="Viridis",
+#                        range_color=(0, 12),
+#                        mapbox_style="carto-positron",
+#                        zoom=15, center = {"lat": lat, "lon": lon},
+#                        opacity=0.5)
+# fig.update_layout(margin={"r":0, "t":0, "l":0, "b":0})
+# print(geojson_new)
 
+fig = go.Figure(go.Scattermapbox())
+
+fig.update_layout(mapbox = {
+        'accesstoken': mapbox_access_token,
+        'style': "mapbox://styles/mapbox/satellite-v9",
+        'center': { 'lon': lon, 'lat': lat},
+        'zoom': 15, 'layers': [{
+            'source': geojson_new,
+            'type': "line", 'below': "traces", "color": "orange"}]},
+    margin={"r":0, "t":0, "l":0, "b":0})
+
+
+# fig = go.Figure(data=go.Choropleth(
+#     locations=df['id'], # Spatial coordinates
+#     z = df['color'].astype(float), # Data to be color-coded
+#     # locationmode = 'USA-states', # set of locations match entries in `locations`
+#     colorscale = 'Reds',
+#     # center = {"lat": lat, "lon": lon}
+#
+#     # colorbar_title = "Millions USD",
+# ))
+# fig.update_geos(
+#     center=dict(lon=lon, lat=lat),
+#     # projection_rotation=dict(lon=30, lat=30, roll=30),
+#     # lataxis_range=[-50,20], lonaxis_range=[0, 200]
+# )
+
+# fig.update_layout(
+    # title_text = '2011 US Agriculture Exports by State',
+    # geo_scope='usa', # limite map scope to USA
+# )
 
 
 app = dash.Dash(
@@ -62,6 +95,7 @@ buttons = html.Div(
         dbc.Button("Подтвердить", color="success", className="mr-3", id="accept"),
         dbc.Button("Отклонить", color="danger", className="mr-3", id="cancel"),
         dbc.Button("Забраковать", color="dark", className="mr-1", id="discard"),
+        html.Div(id="hidden-div", style ={"display": "none"})
     ],
     style={"display": "flex", "justify-content": "center", "padding-left": "10px", "float": "center"},
 )
@@ -156,6 +190,18 @@ modal = html.Div(
 )
 
 
+"""Toast"""
+toast = dbc.Toast(
+            "Отчет сохранен!",
+            id="positioned-toast",
+            header="Примечание",
+            is_open=False,
+            dismissable=True,
+            icon="success",
+            # top: 66 positions the toast below the navbar
+            style={"position": "fixed", "top": 23, "right": 15, "width": 350, "font-size": "15px", "color": "#1E1E1E"},
+        )
+
 """App body"""
 row = html.Div(
     children=[
@@ -192,23 +238,36 @@ row = html.Div(
 )
 
 
+
+
 """Final Layout"""
 app.layout = html.Div(
-    [row, modal]
+    [row, modal, toast]
 )
 
 """For modal window"""
-def toggle_modal(n1, n2, is_open):
-    if n1 or n2:
+def toggle_modal(n1, n2, n3, is_open):
+    if n1 or n2 or n3:
         return not is_open
     return is_open
 
 """For modal window"""
 app.callback(
     Output("modal-lg", "is_open"),
-    [Input("accept", "n_clicks"), Input("close-lg", "n_clicks")],
+    [Input("accept", "n_clicks"), Input("close-lg", "n_clicks"), Input("save-lg", "n_clicks")],
     [State("modal-lg", "is_open")],
 )(toggle_modal)
+
+
+"""For Toast"""
+@app.callback(
+    Output("positioned-toast", "is_open"),
+    [Input("save-lg", "n_clicks")],
+)
+def open_toast(n):
+    if n:
+        return True
+    return False
 
 
 counter = len(geojson["features"])
@@ -224,6 +283,13 @@ def display_counter(btn1):
         return "Осталось проверить : " + str(counter)
     return "Осталось проверить : " + str(counter)
 
+@app.callback(Output("hidden-div", "children"),
+              [Input('save-lg', 'n_clicks')])
+def create_report(btn1):
+    hanged_id = [p['prop_id'] for p in dash.callback_context.triggered][0]
+    if 'save-lg' in hanged_id:
+        create_pdf()
+    return "created"
 
 # Обработчик кнопок
 @app.callback(Output("map-graph", "figure"),
@@ -239,14 +305,20 @@ def displayClick(btn1, btn2, btn3, fig):
         geojson_new, coords = next(coord_generator)
         lat = coords[1]
         lon = coords[0]
-        fig = px.choropleth_mapbox(df, geojson=geojson_new, locations='id', color='color',
-                       color_continuous_scale="Viridis",
-                       range_color=(0, 12),
-                       mapbox_style="carto-positron",
-                       zoom=15, center = {"lat": lat, "lon": lon},
-                       opacity=0.5)
-        fig.update_layout(margin={"r":0, "t":0, "l":0, "b":0})
-        return (fig)
+        if isinstance(lat, list):
+            lon = lat[0]
+            lat = lat[1]
+        fig = go.Figure(go.Scattermapbox())
+        print(lat, lon)
+        fig.update_layout(mapbox = {
+
+            'accesstoken': mapbox_access_token,
+            'style': "mapbox://styles/mapbox/satellite-v9",
+            'center': { 'lon': lon, 'lat': lat},
+            'zoom': 15, 'layers': [{
+                'source': geojson_new,
+                'type': "line", 'below': "traces", "color": "orange"}]},
+            margin={"r":0, "t":0, "l":0, "b":0})
     # fig.update_layout(zoom=13)
     # lat = coords[1]
     # lon = coords[0]
